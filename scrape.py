@@ -15,11 +15,12 @@ import socket
 SHORTLINK_DOMAIN = "hack.af"
 FINE_TUNE_FILE = "hackclub_finetune.jsonl"
 EMBEDDINGS_FILE = "hackclub_embeddings.json"
-MAX_CONCURRENT_REQUESTS = 1000  # Adjust based on server capacity
+MAX_CONCURRENT_REQUESTS = 100  # Adjust based on server capacity
 RATE_LIMIT_DELAY = 0  # Delay between requests in seconds
 
 # MongoDB Atlas Connection
-MONGO_URI = os.environ.get("MONGO_URI")  # Default to local MongoDB
+MONGO_URI = os.getenv("MONGO_URI")
+print(MONGO_URI)
 DB_NAME = "orpheus-bot"
 COLLECTION_NAME = "Embeddings"
 
@@ -106,7 +107,7 @@ def generate_fine_tune_entry(data):
     }
 
 def save_to_mongodb(data):
-    if not collection:
+    if collection is None:
         print("MongoDB not connected. Skipping save.")
         return
     try:
