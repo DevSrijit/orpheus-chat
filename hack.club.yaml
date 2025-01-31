@@ -1,0 +1,13 @@
+---
+"":
+  - type: ALIAS
+    value: a.selfhosted.hackclub.com.
+ahoy:
+  - type: CNAME
+    value: cname.vercel-dns.com.
+hack.club:
+  - type: ALIAS
+    value: cname.vercel-dns.com.
+l:
+  - type: CNAME
+    value: developmental-honeysuckle-bw0w1sr07xraztscn4sxtahk.herokudns.com.
