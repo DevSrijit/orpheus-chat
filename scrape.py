@@ -15,12 +15,12 @@ import socket
 SHORTLINK_DOMAIN = "hack.af"
 FINE_TUNE_FILE = "hackclub_finetune.jsonl"
 EMBEDDINGS_FILE = "hackclub_embeddings.json"
-MAX_CONCURRENT_REQUESTS = 500  # Adjust based on server capacity
+MAX_CONCURRENT_REQUESTS = 1000  # Adjust based on server capacity
 RATE_LIMIT_DELAY = 0  # Delay between requests in seconds
 
 # MongoDB Atlas Connection
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017")  # Default to local MongoDB
-DB_NAME = "HackClubDB"
+MONGO_URI = os.environ.get("MONGO_URI")  # Default to local MongoDB
+DB_NAME = "orpheus-bot"
 COLLECTION_NAME = "Embeddings"
 
 # Initialize MongoDB connection
