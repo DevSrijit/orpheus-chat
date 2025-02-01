@@ -1,0 +1,43 @@
+name: Daily Hack Club Scraping
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs at 00:00 UTC every day
+  workflow_dispatch:      # Allows manual trigger
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Clone DNS repository
+      run: |
+        git clone https://github.com/hackclub/dns.git
+        cp dns/*.yaml ./
+        rm -rf dns
+        
+    - name: Run scraper
+      run: python scrape.py
+      
+    - name: Configure Git
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        
+    - name: Commit and push if changed
+      run: |
+        git add hackclub_embeddings_cron.json
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Update embeddings data [automated]" && git push)
