@@ -183,7 +183,7 @@ def update_knowledge_base():
             "source_url": YAML_URL
         }
         files = assistant.list_files(filter=filter)
-        for file in files.get('files', []):
+        for file in files:
             if file['status'] not in ['Deleting', 'ProcessingFailed'] and file['name'].startswith('ysws-data-'):
                 logger.info(f"Deleting file {file['id']} (Status: {file['status']})")
                 assistant.delete_file(file_id=file['id'])
