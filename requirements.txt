@@ -2,3 +2,7 @@ slack_bolt
 pinecone
 pinecone-plugin-assistant
 python-dotenv
+apscheduler>=3.10.0
+pyyaml>=6.0
+requests>=2.28.0
+reportlab
