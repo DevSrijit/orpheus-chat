@@ -13,8 +13,11 @@ import socket
 # Configuration
 SHORTLINK_DOMAIN = "hack.af"
 EMBEDDINGS_FILE = "hackclub_embeddings_cron.json"
-MAX_CONCURRENT_REQUESTS = 100  # Adjust based on server capacity
-RATE_LIMIT_DELAY = 0  # Delay between requests in seconds
+MAX_CONCURRENT_REQUESTS = 100
+RATE_LIMIT_DELAY = 0
+
+# Add a new list to store all the data
+collected_data = []
 
 visited_urls = set()
 allowed_domains = set()
@@ -96,9 +99,8 @@ async def crawl_url(session, url, discovered_links):
     if not data:
         return
 
-    with open(EMBEDDINGS_FILE, "a", encoding="utf-8") as f:
-        json.dump(data, f)
-        f.write("\n")
+    # Instead of writing directly to file, append to our list
+    collected_data.append(data)
 
     try:
         async with session.get(url, timeout=10, ssl=False) as response:
@@ -132,7 +134,6 @@ async def main():
     start_urls = [f"https://{sub}" for sub in subdomains]
     discovered_links = set(start_urls)
 
-    # Skip invalid domains
     valid_urls = [url for url in discovered_links if is_valid_link(url)]
     print(f"Valid URLs to crawl: {len(valid_urls)}")
 
@@ -141,7 +142,11 @@ async def main():
         while valid_urls:
             batch = [valid_urls.pop() for _ in range(min(MAX_CONCURRENT_REQUESTS, len(valid_urls)))]
             await process_batch(session, batch)
-            await asyncio.sleep(RATE_LIMIT_DELAY)  # Rate limiting
+            await asyncio.sleep(RATE_LIMIT_DELAY)
+
+    # Write all collected data at once in proper JSON format
+    with open(EMBEDDINGS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(collected_data, f, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
     asyncio.run(main())
