@@ -179,7 +179,7 @@ def update_knowledge_base():
 
     # Delete previous files
     try:
-        files = assistant.files.list(filter=f"source_url = '{YAML_URL}'")
+        files = assistant.list_files(filter=f"source_url = '{YAML_URL}'")
         for file in files.get('files', []):
             if file['status'] not in ['Deleting', 'ProcessingFailed']:
                 logger.info(f"Deleting file {file['id']} (Status: {file['status']})")
@@ -235,7 +235,25 @@ def handle_app_mention_events(body, say):
         text = event.get("text", "").replace(f"<@{app.client.auth_test()['user_id']}>", "").strip()
         msg = Message(content=text)
         response = assistant.chat(messages=[msg])
-        say(response["message"]["content"])
+        
+        # Format the message content for Slack
+        message_content = response["message"]["content"]
+        
+        # Send message with proper Slack formatting
+        say({
+            "text": message_content,
+            "mrkdwn": True,  # Enable Slack markdown parsing
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": message_content
+                    }
+                }
+            ]
+        })
+        
         app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="white_check_mark")
     except Exception as e:
         logger.exception("Error handling message:")
