@@ -179,19 +179,35 @@ def update_knowledge_base():
 
     # Delete previous files
     try:
-        files = assistant.list_files(filter=f"source_url = '{YAML_URL}'")
+        # List files with proper metadata filter structure
+        filter_metadata = {"source_url": YAML_URL}
+        files = assistant.list_files(filter=filter_metadata)
+        
         for file in files.get('files', []):
             if file['status'] not in ['Deleting', 'ProcessingFailed']:
                 logger.info(f"Deleting file {file['id']} (Status: {file['status']})")
-                assistant.files.delete(file_id=file['id'])
-                while True:
-                    try:
-                        assistant.files.get(file_id=file['id'])
-                        time.sleep(1)
-                    except Exception:
-                        break
+                try:
+                    assistant.files.delete(file_id=file['id'])
+                    
+                    # Wait for file deletion confirmation
+                    deletion_timeout = 30  # 30 seconds timeout
+                    start_time = time.time()
+                    
+                    while time.time() - start_time < deletion_timeout:
+                        try:
+                            assistant.files.get(file_id=file['id'])
+                            time.sleep(1)
+                        except Exception:
+                            # File no longer exists - deletion confirmed
+                            break
+                    else:
+                        logger.warning(f"Deletion timeout for file {file['id']}")
+                        
+                except Exception as delete_error:
+                    logger.error(f"Error deleting file {file['id']}: {delete_error}")
+                    
     except Exception as e:
-        logger.error(f"Error in file cleanup: {e}")
+        logger.error(f"Error in file cleanup: {str(e)}")
 
     # Upload and verify new file
     try:
