@@ -19,7 +19,7 @@ azure_client = AzureOpenAI(
 )
 
 # MongoDB Atlas Config
-MONGO_URI = "mongodb+srv://devsrijit:ZEQqGLIzNtD26P10@hackclubdb.9wjgdmw.mongodb.net/?retryWrites=true&w=majority&appName=HackClubDB"
+MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = "orpheus-bot"
 COLLECTION_NAME = "Embeddings"
 
