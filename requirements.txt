@@ -1,4 +1,4 @@
 slack_bolt
 pinecone
-pinecone-plugins
+pinecone-plugin-assistant
 python-dotenv
