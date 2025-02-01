@@ -1,0 +1,9 @@
+version: "3.8"
+services:
+  slackbot:
+    build: .
+    environment:
+      - SLACK_BOT_TOKEN=your-slack-bot-token
+      - SLACK_APP_TOKEN=your-slack-app-token
+      - PINECONE_API_KEY=your-pinecone-api-key
+    restart: unless-stopped
