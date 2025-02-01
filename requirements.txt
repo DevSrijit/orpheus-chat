@@ -6,3 +6,7 @@ apscheduler>=3.10.0
 pyyaml>=6.0
 requests>=2.28.0
 reportlab
+aiohttp>=3.8.0
+beautifulsoup4>=4.9.3
+tldextract>=3.1.0
+lxml>=4.9.0

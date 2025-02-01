@@ -7,33 +7,14 @@ import glob
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import tldextract
-from pymongo import MongoClient
 import os
 import socket
 
 # Configuration
 SHORTLINK_DOMAIN = "hack.af"
-FINE_TUNE_FILE = "hackclub_finetune.jsonl"
-EMBEDDINGS_FILE = "hackclub_embeddings.json"
+EMBEDDINGS_FILE = "hackclub_embeddings_cron.json"
 MAX_CONCURRENT_REQUESTS = 100  # Adjust based on server capacity
 RATE_LIMIT_DELAY = 0  # Delay between requests in seconds
-
-# MongoDB Atlas Connection
-MONGO_URI = os.getenv("MONGO_URI")
-print(MONGO_URI)
-DB_NAME = "orpheus-bot"
-COLLECTION_NAME = "Embeddings"
-
-# Initialize MongoDB connection
-try:
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)  # 5-second timeout
-    client.server_info()  # Test connection
-    db = client[DB_NAME]
-    collection = db[COLLECTION_NAME]
-    print("Connected to MongoDB successfully!")
-except Exception as e:
-    print(f"Error connecting to MongoDB: {e}")
-    collection = None  # Disable MongoDB if connection fails
 
 visited_urls = set()
 allowed_domains = set()
@@ -97,25 +78,6 @@ async def extract_data(session, url):
         print(f"Error scraping {url}: {e}")
         return None
 
-def generate_fine_tune_entry(data):
-    return {
-        "messages": [
-            {"role": "system", "content": f"You are an expert in Hack Club topics related to {', '.join(data['metadata']['headings'][:2])}."},
-            {"role": "user", "content": f"Tell me about {data['title']}"},
-            {"role": "assistant", "content": data["content"]}
-        ]
-    }
-
-def save_to_mongodb(data):
-    if collection is None:
-        print("MongoDB not connected. Skipping save.")
-        return
-    try:
-        collection.insert_one(data)
-        print(f"Saved to MongoDB: {data['url']}")
-    except Exception as e:
-        print(f"Error saving to MongoDB: {e}")
-
 async def crawl_url(session, url, discovered_links):
     if url in visited_urls:
         return
@@ -134,15 +96,9 @@ async def crawl_url(session, url, discovered_links):
     if not data:
         return
 
-    with open(FINE_TUNE_FILE, "a", encoding="utf-8") as f:
-        json.dump(generate_fine_tune_entry(data), f)
-        f.write("\n")
-
     with open(EMBEDDINGS_FILE, "a", encoding="utf-8") as f:
         json.dump(data, f)
         f.write("\n")
-
-    save_to_mongodb(data)
 
     try:
         async with session.get(url, timeout=10, ssl=False) as response:
