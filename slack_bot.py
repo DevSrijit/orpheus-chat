@@ -33,6 +33,9 @@ SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 YAML_URL = "https://raw.githubusercontent.com/hackclub/YSWS-Catalog/main/data.yml"
 
+# New constant for embeddings URL
+EMBEDDINGS_URL = "https://raw.githubusercontent.com/DevSrijit/orpheus-chat/refs/heads/main/hackclub_embeddings_cron.json"
+
 # Initialize Pinecone
 pc = Pinecone(api_key=PINECONE_API_KEY)
 assistant = pc.assistant.Assistant(assistant_name="orpheus")
@@ -218,9 +221,70 @@ def update_knowledge_base():
         except Exception as e:
             logger.error(f"Error cleaning up temporary file: {e}")
 
-# Configure scheduler
+def update_embeddings():
+    """Update Pinecone knowledge base with embeddings data"""
+    logger.info("Starting embeddings update")
+    
+    try:
+        # Fetch new embeddings file
+        response = requests.get(EMBEDDINGS_URL)
+        response.raise_for_status()
+        
+        # Create temporary file for embeddings data
+        temp_path = tempfile.mktemp(prefix='embeddings-', suffix='.json')
+        with open(temp_path, 'wb') as f:
+            f.write(response.content)
+        
+        # Delete previous embeddings file(s)
+        try:
+            filter = {
+                "source_url": EMBEDDINGS_URL
+            }
+            files = assistant.list_files(filter=filter)
+            for file in files:
+                if file['status'] not in ['Deleting', 'ProcessingFailed']:
+                    logger.info(f"Deleting embeddings file {file['id']} (Status: {file['status']})")
+                    assistant.delete_file(file_id=file['id'])
+                    # Wait until the file is actually removed
+                    while True:
+                        try:
+                            assistant.describe_file(file_id=file['id'])
+                            time.sleep(1)
+                        except Exception:
+                            break
+        except Exception as e:
+            logger.error(f"Error in embeddings file cleanup: {e}")
+
+        # Upload new embeddings file
+        file_info = assistant.upload_file(
+            file_path=temp_path,
+            metadata={
+                "source_url": EMBEDDINGS_URL,
+                "converted_at": datetime.utcnow().isoformat(),
+                "original_format": "json",
+                "document_type": "Hack Club Embeddings"
+            }
+        )
+        logger.info(f"Uploaded new embeddings file: {file_info['id']}")
+        
+        if wait_for_file_processing(file_info['id']):
+            logger.info("New embeddings file successfully processed and available")
+        else:
+            raise Exception("Embeddings file processing failed")
+            
+    except Exception as e:
+        logger.error(f"Embeddings update failed: {e}")
+    finally:
+        # Clean up temporary embeddings file
+        try:
+            os.remove(temp_path)
+        except Exception as e:
+            logger.error(f"Error cleaning up temporary embeddings file: {e}")
+
+# Configure scheduler to run periodic updates
 scheduler = BackgroundScheduler()
 scheduler.add_job(update_knowledge_base, 'cron', hour=0)
+scheduler.add_job(update_embeddings, 'cron', hour=0, minute=30)
 scheduler.start()
 
 @app.event("app_mention")
@@ -271,5 +335,6 @@ def handle_app_mention_events(body, say):
 if __name__ == "__main__":
     logger.info("Starting application with scheduled updates")
     update_knowledge_base()
+    update_embeddings()
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
     handler.start()
