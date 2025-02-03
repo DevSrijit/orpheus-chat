@@ -36,6 +36,10 @@ YAML_URL = "https://raw.githubusercontent.com/hackclub/YSWS-Catalog/main/data.ym
 # New constant for embeddings URL
 EMBEDDINGS_URL = "https://raw.githubusercontent.com/DevSrijit/orpheus-chat/refs/heads/main/hackclub_embeddings_cron.json"
 
+# Constants for user context scraping
+CONTEXT_CHANNEL_ID = "C05B6DBN802"
+CONTEXT_USER_ID = "U07BU2HS17Z"
+
 # Initialize Pinecone
 pc = Pinecone(api_key=PINECONE_API_KEY)
 assistant = pc.assistant.Assistant(assistant_name="orpheus")
@@ -281,7 +285,68 @@ def update_embeddings():
         except Exception as e:
             logger.error(f"Error cleaning up temporary embeddings file: {e}")
 
-# Configure scheduler to run periodic updates
+def update_user_context(message_text):
+    """
+    Update the assistant's context with the latest message text from a specific user.
+    Deletes any previous context file so that only the latest message is stored.
+    Uploads the context as a .txt file.
+    """
+    logger.info("Updating user context for assistant")
+    # Delete previous context files
+    try:
+        context_filter = {
+            "document_type": "User Context",
+            "source_id": CONTEXT_USER_ID
+        }
+        files = assistant.list_files(filter=context_filter)
+        for file in files:
+            if file['status'] not in ['Deleting', 'ProcessingFailed']:
+                logger.info(f"Deleting previous context file {file['id']} (Status: {file['status']})")
+                assistant.delete_file(file_id=file['id'])
+                while True:
+                    try:
+                        assistant.describe_file(file_id=file['id'])
+                        time.sleep(1)
+                    except Exception:
+                        break
+    except Exception as e:
+        logger.error(f"Error during previous context file cleanup: {e}")
+
+    # Write the new context to a temporary .txt file
+    try:
+        temp_context_path = tempfile.mktemp(prefix='user-context-', suffix='.txt')
+        with open(temp_context_path, 'w', encoding='utf-8') as f:
+            f.write(message_text)
+    except Exception as e:
+        logger.error(f"Error writing context file: {e}")
+        return
+
+    # Upload the new context file
+    try:
+        file_info = assistant.upload_file(
+            file_path=temp_context_path,
+            metadata={
+                "source_id": CONTEXT_USER_ID,
+                "converted_at": datetime.utcnow().isoformat(),
+                "original_format": "txt",
+                "document_type": "User Context"
+            }
+        )
+        logger.info(f"Uploaded new user context file: {file_info['id']}")
+        
+        if wait_for_file_processing(file_info['id']):
+            logger.info("User context file successfully processed and available")
+        else:
+            raise Exception("User context file processing failed")
+    except Exception as e:
+        logger.error(f"User context update failed: {e}")
+    finally:
+        try:
+            os.remove(temp_context_path)
+        except Exception as e:
+            logger.error(f"Error cleaning up temporary context file: {e}")
+
+# Scheduler for periodic updates
 scheduler = BackgroundScheduler()
 scheduler.add_job(update_knowledge_base, 'cron', hour=0)
 scheduler.add_job(update_embeddings, 'cron', hour=0, minute=30)
@@ -331,6 +396,19 @@ def handle_app_mention_events(body, say):
             app.client.reactions_remove(channel=channel_id, timestamp=message_ts, name="loading-dots")
         except Exception as e:
             logger.error(f"Failed to remove loading reaction: {e}")
+
+# New event handler to capture messages from a specific user in a specific channel
+@app.event("message")
+def handle_user_context_messages(event, logger):
+    # Check that the event comes from the designated channel and user,
+    # and ignore messages with a subtype (like bot messages or message edits)
+    if (event.get("channel") == CONTEXT_CHANNEL_ID and
+        event.get("user") == CONTEXT_USER_ID and
+        not event.get("subtype")):
+        text = event.get("text", "").strip()
+        if text:
+            logger.info(f"New context message received from {CONTEXT_USER_ID} in channel {CONTEXT_CHANNEL_ID}")
+            update_user_context(text)
 
 if __name__ == "__main__":
     logger.info("Starting application with scheduled updates")
