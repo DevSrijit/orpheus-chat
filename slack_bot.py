@@ -39,6 +39,7 @@ EMBEDDINGS_URL = "https://raw.githubusercontent.com/DevSrijit/orpheus-chat/refs/
 # Constants for user context scraping
 CONTEXT_CHANNEL_ID = "C05B6DBN802"
 CONTEXT_USER_ID = "U07BU2HS17Z"
+LOUNGE_CHANNEL_ID = "C0266FRGV"
 
 # Initialize Pinecone
 pc = Pinecone(api_key=PINECONE_API_KEY)
@@ -357,45 +358,64 @@ def handle_app_mention_events(body, say):
     event = body.get("event", {})
     channel_id = event.get("channel")
     message_ts = event.get("ts")
-    
-    try:
-        app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="loading-dots")
-    except Exception as e:
-        logger.error(f"Failed to add loading reaction: {e}")
 
-    try:
-        text = event.get("text", "").replace(f"<@{app.client.auth_test()['user_id']}>", "").strip()
-        msg = Message(content=text)
-        response = assistant.chat(messages=[msg])
-        
-        # Format the message content for Slack
-        message_content = response["message"]["content"]
-        
-        # Send message with proper Slack formatting
+    if channel_id == LOUNGE_CHANNEL_ID:
+        try:
+            app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="hie")
+        except Exception as e:
+            logger.error(f"Failed to add loading reaction: {e}")
         say({
-            "text": message_content,
-            "mrkdwn": True,  # Enable Slack markdown parsing
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": message_content
+                "text": "⚠️ I can't answer questions in #lounge, this is to combat bot spam & innacurrate information in #lounge. Please ask your question in #orpheus-irl",
+                "mrkdwn": True,  # Enable Slack markdown parsing
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": message_content
                     }
                 }
             ]
         })
-        
-        app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="white_check_mark")
-    except Exception as e:
-        logger.exception("Error handling message:")
-        say("⚠️ An error occurred while processing your request")
-        app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="x")
-    finally:
+    else:
         try:
-            app.client.reactions_remove(channel=channel_id, timestamp=message_ts, name="loading-dots")
+            app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="loading-dots")
         except Exception as e:
-            logger.error(f"Failed to remove loading reaction: {e}")
+            logger.error(f"Failed to add loading reaction: {e}")
+
+        try:
+            text = event.get("text", "").replace(f"<@{app.client.auth_test()['user_id']}>", "").strip()
+            msg = Message(content=text)
+            response = assistant.chat(messages=[msg])
+            
+            # Format the message content for Slack
+            message_content = response["message"]["content"]
+            
+            # Send message with proper Slack formatting
+            say({
+                "text": message_content,
+                "mrkdwn": True,  # Enable Slack markdown parsing
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": message_content
+                        }
+                    }
+                ]
+            })
+            
+            app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="white_check_mark")
+        except Exception as e:
+            logger.exception("Error handling message:")
+            say("⚠️ An error occurred while processing your request")
+            app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="x")
+        finally:
+            try:
+                app.client.reactions_remove(channel=channel_id, timestamp=message_ts, name="loading-dots")
+            except Exception as e:
+                logger.error(f"Failed to remove loading reaction: {e}")
 
 # New event handler to capture messages from a specific user in a specific channel
 @app.event("message")
