@@ -386,7 +386,7 @@ def handle_app_mention_events(body, say):
         try:
             text = event.get("text", "").replace(f"<@{app.client.auth_test()['user_id']}>", "").strip()
             msg = Message(content=text)
-            response = assistant.chat(messages=[msg])
+            response = assistant.chat(messages=[msg], model="claude-3-5-sonnet")
             
             # Format the message content for Slack
             message_content = response["message"]["content"]
