@@ -518,7 +518,7 @@ def handle_user_context_messages(event, logger):
 
 if __name__ == "__main__":
     logger.info("Starting application with scheduled updates")
-    #update_knowledge_base()
-    #update_embeddings()
+    update_knowledge_base()
+    update_embeddings()
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
     handler.start()
