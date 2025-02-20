@@ -360,7 +360,7 @@ def moderate_with_lakera(prompt_text):
             logger.error("LAKERA_GUARD_API_KEY not set.")
             return False, None
         url = "https://api.lakera.ai/v2/guard"
-        payload = {"messages": [{"content": prompt_text, "role": "user"}]}  
+        payload = {"messages": [{"content": prompt_text, "role": "user"}], "metadata": {"ProjectID": "project-6267211438"}}
         headers = {"Authorization": f"Bearer {api_key}"}
         response = requests.post(url, json=payload, headers=headers, timeout=5)
         response.raise_for_status()
