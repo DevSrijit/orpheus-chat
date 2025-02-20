@@ -4,6 +4,7 @@ import yaml
 import requests
 import tempfile
 import time
+import re
 from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from slack_bolt import App
@@ -88,8 +89,8 @@ def yaml_to_pdf(yaml_data, output_path):
                 if isinstance(item, dict):
                     # Create a table for each dictionary item
                     table_data = [[Paragraph(k, styles['Heading4']), 
-                                 Paragraph(str(v), styles['Normal'])] 
-                                for k, v in item.items()]
+                                   Paragraph(str(v), styles['Normal'])] 
+                                  for k, v in item.items()]
                     table = Table(table_data, colWidths=[2*inch, 4*inch])
                     table.setStyle(TableStyle([
                         ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
@@ -112,8 +113,8 @@ def yaml_to_pdf(yaml_data, output_path):
         elif isinstance(section_data, dict):
             # Handle dictionary data
             table_data = [[Paragraph(k, styles['Heading4']), 
-                          Paragraph(str(v), styles['Normal'])] 
-                         for k, v in section_data.items()]
+                           Paragraph(str(v), styles['Normal'])] 
+                          for k, v in section_data.items()]
             table = Table(table_data, colWidths=[2*inch, 4*inch])
             table.setStyle(TableStyle([
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
@@ -250,7 +251,6 @@ def update_embeddings():
                 if file['status'] not in ['Deleting', 'ProcessingFailed']:
                     logger.info(f"Deleting embeddings file {file['id']} (Status: {file['status']})")
                     assistant.delete_file(file_id=file['id'])
-                    # Wait until the file is actually removed
                     while True:
                         try:
                             assistant.describe_file(file_id=file['id'])
@@ -347,6 +347,41 @@ def update_user_context(message_text):
         except Exception as e:
             logger.error(f"Error cleaning up temporary context file: {e}")
 
+# Lakera Guard API will be used for comprehensive content moderation.
+
+def moderate_with_lakera(prompt_text):
+    """
+    Call the Lakera Guard API's moderation endpoint to flag and detect any AI security risks.
+    Returns a json where 'flagged' is True if any risk is detected.
+    """
+    try:
+        api_key = os.getenv("LAKERA_GUARD_API_KEY")
+        if not api_key:
+            logger.error("LAKERA_GUARD_API_KEY not set.")
+            return False, None
+        url = "https://api.lakera.ai/v2/guard"
+        payload = {"messages": [{"content": prompt_text, "role": "user"}]}  
+        headers = {"Authorization": f"Bearer {api_key}"}
+        response = requests.post(url, json=payload, headers=headers, timeout=5)
+        response.raise_for_status()
+        result = response.json()
+        flagged = result.get("flagged", False)
+        return flagged, result
+    except Exception as e:
+        logger.error(f"Error during Lakera Guard moderation: {e}")
+        return False, None
+
+def sanitize_mentions(text):
+    """
+    Sanitize the text to prevent actual Slack pings.
+    Replace user/channel mentions such as <@U12345> or <!channel> with a harmless format.
+    """
+    # Replace user mentions: <@U12345> -> @/U12345
+    text = re.sub(r"<@([A-Z0-9]+)>", r"@/\1", text)
+    # Replace special mentions like <@channel>, <@here>, <@everyone>
+    text = re.sub(r"@((?:channel|here|everyone)[^>]*)", r"@/\1", text)
+    return text
+
 # Scheduler for periodic updates
 scheduler = BackgroundScheduler()
 scheduler.add_job(update_knowledge_base, 'cron', hour=0)
@@ -358,64 +393,115 @@ def handle_app_mention_events(body, say):
     event = body.get("event", {})
     channel_id = event.get("channel")
     message_ts = event.get("ts")
-
-    if channel_id == LOUNGE_CHANNEL_ID:
-        try:
-            app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="hie")
-        except Exception as e:
-            logger.error(f"Failed to add loading reaction: {e}")
+    
+    # Extract the text and remove the bot mention
+    try:
+        bot_id = app.client.auth_test()["user_id"]
+    except Exception as e:
+        logger.error(f"Error fetching bot user id: {e}")
+        bot_id = ""
+    text = event.get("text", "").replace(f"<@{bot_id}>", "").strip()
+    
+    # --- Use Lakera Guard API for comprehensive moderation ---
+    flagged, guard_response = moderate_with_lakera(text)
+    if flagged:
+        flagged_message = ("🚫 Oi, I think you're trying to trick me!\n"
+                           "As an AI, I may produce content which may be harmful to this community (and then Srijit will pull the plug on me). In order to prevent this (and stay alive), I'm going to ignore you this time.")
+        sanitized = sanitize_mentions(flagged_message)
         say({
-                "text": "⚠️ I can't answer questions in #lounge, this is to combat bot spam & innacurrate information in #lounge. Please ask your question in #orpheus-irl",
-                "mrkdwn": True,  # Enable Slack markdown parsing
-                "blocks": [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": message_content
+            "text": sanitized,
+            "mrkdwn": True,
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": sanitized
                     }
                 }
             ]
         })
-    else:
+        return
+
+    # FD Moderation: Restrict processing in lounge channel
+    if channel_id == LOUNGE_CHANNEL_ID:
+        lounge_message = ("⚠️ I can't answer questions in #lounge, "
+                          "this is to combat bot spam & inaccurate information in #lounge. "
+                          "Please ask your question in #orpheus-irl.")
+        sanitized = sanitize_mentions(lounge_message)
+        say({
+            "text": sanitized,
+            "mrkdwn": True,
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": sanitized
+                    }
+                }
+            ]
+        })
+        return
+
+    # Normal stuff
+    try:
         try:
             app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="loading-dots")
         except Exception as e:
             logger.error(f"Failed to add loading reaction: {e}")
-
-        try:
-            text = event.get("text", "").replace(f"<@{app.client.auth_test()['user_id']}>", "").strip()
-            msg = Message(content=text)
-            response = assistant.chat(messages=[msg])
-            
-            # Format the message content for Slack
-            message_content = response["message"]["content"]
-            
-            # Send message with proper Slack formatting
-            say({
-                "text": message_content,
-                "mrkdwn": True,  # Enable Slack markdown parsing
-                "blocks": [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": message_content
-                        }
+        
+        msg = Message(content=text)
+        response = assistant.chat(messages=[msg])
+        
+        # Format the message content for Slack and sanitize mentions
+        message_content = response["message"]["content"]
+        message_content = sanitize_mentions(message_content)
+        
+        # Send message with proper Slack markdown formatting
+        say({
+            "text": message_content,
+            "mrkdwn": True,
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": message_content
                     }
-                ]
-            })
-            
+                }
+            ]
+        })
+        
+        try:
             app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="white_check_mark")
         except Exception as e:
-            logger.exception("Error handling message:")
-            say("⚠️ An error occurred while processing your request")
+            logger.error(f"Failed to add white_check_mark reaction: {e}")
+    except Exception as e:
+        logger.exception("Error handling message:")
+        error_message = "⚠️ An error occurred while processing your request"
+        say({
+            "text": error_message,
+            "mrkdwn": True,
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": error_message
+                    }
+                }
+            ]
+        })
+        try:
             app.client.reactions_add(channel=channel_id, timestamp=message_ts, name="x")
-        finally:
-            try:
-                app.client.reactions_remove(channel=channel_id, timestamp=message_ts, name="loading-dots")
-            except Exception as e:
-                logger.error(f"Failed to remove loading reaction: {e}")
+        except Exception as e:
+            logger.error(f"Failed to add error reaction: {e}")
+    finally:
+        try:
+            app.client.reactions_remove(channel=channel_id, timestamp=message_ts, name="loading-dots")
+        except Exception as e:
+            logger.error(f"Failed to remove loading reaction: {e}")
 
 # New event handler to capture messages from a specific user in a specific channel
 @app.event("message")
@@ -432,7 +518,7 @@ def handle_user_context_messages(event, logger):
 
 if __name__ == "__main__":
     logger.info("Starting application with scheduled updates")
-    update_knowledge_base()
-    update_embeddings()
+    #update_knowledge_base()
+    #update_embeddings()
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
     handler.start()
